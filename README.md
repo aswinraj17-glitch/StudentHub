@@ -1,16 +1,75 @@
-# StudentHub - Campus Placement & Job Portal
-Sri Shanmugha College of Engineering and Technology
+# 🎓 StudentHub – College Placement Management System
 
-Modern student job portal built with React, Spring Boot, and MySQL.
+> 🚀 A college-exclusive placement management platform that connects students, placement officers, and recruiters in one centralized system.
 
-## Registration & Authentication
-- Student registration is strictly restricted to students of Sri Shanmugha College of Engineering and Technology.
-- Student email IDs must follow the official student ID pattern: `e{batch}{dept}{student_number}@shanmugha.edu.in` (e.g. `e23cs010@shanmugha.edu.in`).
+---
 
-## Run
-1. Create database with database/schema.sql.
-2. Update backend/src/main/resources/application.properties with your MySQL password.
-3. Run backend: `mvn spring-boot:run`.
-4. Run frontend: `npm install && npm run dev`.
+## 🌟 Overview
 
-Core modules: authentication, student profiles, jobs, search, applications, saved jobs, interviews, notifications, placement officer directory, and admin console.
+**StudentHub** is a full-stack College Placement Management System designed exclusively for students of **Sri Shanmugha College of Engineering and Technology**.
+
+The platform simplifies the placement process by allowing students to create profiles, explore job opportunities, check eligibility, and apply for placements online.
+
+Placement officers can manage student information, job postings, eligibility criteria, and application records from a centralized dashboard.
+
+---
+
+## ✨ Key Features
+
+### 👨‍🎓 Student
+- 🔐 Secure college-only registration & login
+- 📧 College email validation
+- 👤 Complete student profile
+- 💼 View available job opportunities
+- ✅ Check job eligibility
+- 📝 Apply for jobs online
+- 📊 Track application status
+
+### 🧑‍💼 Placement Officer
+- 📋 Manage student records
+- 💼 Create and manage job postings
+- 🎯 Set eligibility criteria
+- 📊 View student applications
+- 📥 Download application data
+- 🔎 Verify eligible candidates
+
+### 🔒 Security
+- College email validation
+- Duplicate account prevention
+- Role-based access
+- Backend validation
+- Secure authentication flow
+- No demo credentials exposed in the UI
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|---|---|
+| 🎨 Frontend | React.js |
+| ⚙️ Backend | Java + Spring Boot |
+| 🔗 API | REST API |
+| 🗄️ Database | MySQL |
+| 📦 Build Tool | Maven |
+| 💻 IDE | VS Code |
+| 🛢️ Database Tool | MySQL Workbench |
+
+---
+
+## 🏗️ Project Architecture
+
+```text
+StudentHub
+│
+├── 🎨 Frontend
+│   └── React.js
+│
+├── ⚙️ Backend
+│   └── Java + Spring Boot
+│
+├── 🔗 REST APIs
+│   └── Frontend ↔ Backend
+│
+└── 🗄️ Database
+    └── MySQL
