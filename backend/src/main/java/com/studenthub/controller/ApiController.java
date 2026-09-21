@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -31,6 +32,8 @@ public class ApiController {
     private final Profiles profiles;
     private final OfficerProfiles officerProfiles;
     private final Announcements announcements;
+    private final JobRounds jobRounds;
+    private final CandidateRoundResults candidateRoundResults;
     private final PasswordEncoder encoder;
 
     public ApiController(
@@ -43,6 +46,8 @@ public class ApiController {
             Profiles profiles,
             OfficerProfiles officerProfiles,
             Announcements announcements,
+            JobRounds jobRounds,
+            CandidateRoundResults candidateRoundResults,
             PasswordEncoder encoder
     ) {
         this.users = users;
@@ -54,6 +59,8 @@ public class ApiController {
         this.profiles = profiles;
         this.officerProfiles = officerProfiles;
         this.announcements = announcements;
+        this.jobRounds = jobRounds;
+        this.candidateRoundResults = candidateRoundResults;
         this.encoder = encoder;
     }
 
@@ -519,6 +526,7 @@ public class ApiController {
     }
 
     @PostMapping("/jobs")
+    @Transactional
     public Job createJob(@RequestBody Job job, @RequestParam(required = false) Long recruiterId) {
         if (recruiterId != null) {
             job.recruiter = users.findById(recruiterId).orElse(null);
@@ -534,6 +542,50 @@ public class ApiController {
         announcements.save(announcement);
 
         return savedJob;
+    }
+
+    @DeleteMapping("/jobs/{id}")
+    @Transactional
+    public ResponseEntity<?> deleteJob(@PathVariable Long id) {
+        Job job = jobs.findById(id).orElse(null);
+        if (job == null) {
+            return ResponseEntity.ok(Map.of("message", "Drive already deleted or not found."));
+        }
+
+        // 1. Delete candidate round results and interviews for all applications of this job
+        List<Application> applicationList = apps.findByJobId(id);
+        for (Application a : applicationList) {
+            try {
+                candidateRoundResults.deleteByApplicationId(a.id);
+            } catch (Exception e) {}
+
+            if (a.student != null) {
+                interviews.findByApplicationStudentId(a.student.id).stream()
+                        .filter(i -> i.application != null && i.application.id.equals(a.id))
+                        .forEach(interviews::delete);
+            }
+            apps.delete(a);
+        }
+
+        // 2. Delete job rounds and any remaining candidate round results
+        List<JobRound> rounds = jobRounds.findByJobIdOrderByRoundOrderAsc(id);
+        for (JobRound r : rounds) {
+            List<CandidateRoundResult> remainingResults = candidateRoundResults.findByJobRoundId(r.id);
+            if (remainingResults != null && !remainingResults.isEmpty()) {
+                candidateRoundResults.deleteAll(remainingResults);
+            }
+            jobRounds.delete(r);
+        }
+
+        // 3. Delete saved jobs for this drive
+        saved.findAll().stream()
+                .filter(s -> s.job != null && s.job.id.equals(id))
+                .forEach(saved::delete);
+
+        // 4. Delete job entity
+        jobs.delete(job);
+
+        return ResponseEntity.ok(Map.of("message", "Placement drive deleted successfully."));
     }
 
     @GetMapping("/jobs/{id}/eligibility")
@@ -568,15 +620,37 @@ public class ApiController {
         }
 
         // 3. Eligible Degree Check
-        if (job.eligibleDegree != null && !job.eligibleDegree.equalsIgnoreCase("All Degrees")) {
-            if (sp.degree == null || !sp.degree.toLowerCase().contains(job.eligibleDegree.toLowerCase())) {
+        if (job.eligibleDegree != null && !job.eligibleDegree.equalsIgnoreCase("All Degrees") && !job.eligibleDegree.isBlank()) {
+            boolean degreeMatched = false;
+            if (sp.degree != null) {
+                String[] allowedDegrees = job.eligibleDegree.split(",");
+                for (String d : allowedDegrees) {
+                    String trimmedD = d.trim();
+                    if (trimmedD.equalsIgnoreCase("All Degrees") || sp.degree.toLowerCase().contains(trimmedD.toLowerCase()) || trimmedD.toLowerCase().contains(sp.degree.toLowerCase())) {
+                        degreeMatched = true;
+                        break;
+                    }
+                }
+            }
+            if (!degreeMatched) {
                 reasons.add("Eligible Degree: " + job.eligibleDegree + " (Your Degree: " + (sp.degree != null ? sp.degree : "N/A") + ")");
             }
         }
 
         // 4. Eligible Department Check
-        if (job.eligibleDepartment != null && !job.eligibleDepartment.equalsIgnoreCase("All Departments")) {
-            if (sp.department == null || !sp.department.toLowerCase().contains(job.eligibleDepartment.toLowerCase())) {
+        if (job.eligibleDepartment != null && !job.eligibleDepartment.equalsIgnoreCase("All Departments") && !job.eligibleDepartment.isBlank()) {
+            boolean deptMatched = false;
+            if (sp.department != null) {
+                String[] allowedDepts = job.eligibleDepartment.split(",");
+                for (String dept : allowedDepts) {
+                    String trimmedDept = dept.trim();
+                    if (trimmedDept.equalsIgnoreCase("All Departments") || sp.department.toLowerCase().contains(trimmedDept.toLowerCase()) || trimmedDept.toLowerCase().contains(sp.department.toLowerCase())) {
+                        deptMatched = true;
+                        break;
+                    }
+                }
+            }
+            if (!deptMatched) {
                 reasons.add("Eligible Department: " + job.eligibleDepartment + " (Your Department: " + (sp.department != null ? sp.department : "N/A") + ")");
             }
         }
@@ -600,6 +674,7 @@ public class ApiController {
     // ============================================================
 
     @PostMapping("/applications")
+    @Transactional
     public ResponseEntity<?> applyJob(@RequestParam Long studentId, @RequestParam Long jobId) {
         Job job = jobs.findById(jobId).orElseThrow();
         User student = users.findById(studentId).orElseThrow();
@@ -630,9 +705,37 @@ public class ApiController {
         if (job.maxBacklogs != null && profile.backlogs != null && profile.backlogs > job.maxBacklogs) {
             reasons.add("Maximum backlogs allowed: " + job.maxBacklogs + " (Your Backlogs: " + profile.backlogs + ")");
         }
-        if (job.eligibleDegree != null && !job.eligibleDegree.equalsIgnoreCase("All Degrees")) {
-            if (profile.degree == null || !profile.degree.toLowerCase().contains(job.eligibleDegree.toLowerCase())) {
+        if (job.eligibleDegree != null && !job.eligibleDegree.equalsIgnoreCase("All Degrees") && !job.eligibleDegree.isBlank()) {
+            boolean degreeMatched = false;
+            if (profile.degree != null) {
+                String[] allowedDegrees = job.eligibleDegree.split(",");
+                for (String d : allowedDegrees) {
+                    String trimmedD = d.trim();
+                    if (trimmedD.equalsIgnoreCase("All Degrees") || profile.degree.toLowerCase().contains(trimmedD.toLowerCase()) || trimmedD.toLowerCase().contains(profile.degree.toLowerCase())) {
+                        degreeMatched = true;
+                        break;
+                    }
+                }
+            }
+            if (!degreeMatched) {
                 reasons.add("Eligible Degree: " + job.eligibleDegree);
+            }
+        }
+
+        if (job.eligibleDepartment != null && !job.eligibleDepartment.equalsIgnoreCase("All Departments") && !job.eligibleDepartment.isBlank()) {
+            boolean deptMatched = false;
+            if (profile.department != null) {
+                String[] allowedDepts = job.eligibleDepartment.split(",");
+                for (String dept : allowedDepts) {
+                    String trimmedDept = dept.trim();
+                    if (trimmedDept.equalsIgnoreCase("All Departments") || profile.department.toLowerCase().contains(trimmedDept.toLowerCase()) || trimmedDept.toLowerCase().contains(profile.department.toLowerCase())) {
+                        deptMatched = true;
+                        break;
+                    }
+                }
+            }
+            if (!deptMatched) {
+                reasons.add("Eligible Department: " + job.eligibleDepartment);
             }
         }
 
@@ -663,12 +766,274 @@ public class ApiController {
 
         Application savedApp = apps.save(app);
 
+        // Auto-initialize candidate round results for selection rounds
+        List<JobRound> rounds = jobRounds.findByJobIdOrderByRoundOrderAsc(job.id);
+        if (rounds.isEmpty()) {
+            JobRound r1 = new JobRound(); r1.job = job; r1.roundOrder = 1; r1.roundName = "Aptitude Test"; r1.description = "Online aptitude test covering quantitative and verbal reasoning."; jobRounds.save(r1);
+            JobRound r2 = new JobRound(); r2.job = job; r2.roundOrder = 2; r2.roundName = "Technical Interview"; r2.description = "Technical interview focusing on core programming concepts."; jobRounds.save(r2);
+            JobRound r3 = new JobRound(); r3.job = job; r3.roundOrder = 3; r3.roundName = "HR Interview"; r3.description = "Final HR round discussing background and job offer."; jobRounds.save(r3);
+            rounds = jobRounds.findByJobIdOrderByRoundOrderAsc(job.id);
+        }
+        for (int i = 0; i < rounds.size(); i++) {
+            JobRound r = rounds.get(i);
+            CandidateRoundResult crr = new CandidateRoundResult();
+            crr.application = savedApp;
+            crr.jobRound = r;
+            crr.status = (i == 0) ? "UPCOMING" : "NOT_STARTED";
+            candidateRoundResults.save(crr);
+        }
+
         Notification n = new Notification();
         n.user = student;
         n.message = "Application submitted for " + job.title + " at " + job.company + ". Status: " + app.eligibilityStatus;
         notifications.save(n);
 
         return ResponseEntity.ok(savedApp);
+    }
+
+    // ============================================================
+    // RECRUITMENT ROUNDS & SHORTLIST MANAGEMENT
+    // ============================================================
+
+    @GetMapping("/jobs/{id}/rounds")
+    @Transactional
+    public List<JobRound> getJobRounds(@PathVariable Long id) {
+        List<JobRound> rounds = jobRounds.findByJobIdOrderByRoundOrderAsc(id);
+        if (rounds.isEmpty()) {
+            Job j = jobs.findById(id).orElse(null);
+            if (j != null) {
+                JobRound r1 = new JobRound(); r1.job = j; r1.roundOrder = 1; r1.roundName = "Aptitude Test"; r1.description = "Online aptitude assessment covering quantitative and verbal skills."; jobRounds.save(r1);
+                JobRound r2 = new JobRound(); r2.job = j; r2.roundOrder = 2; r2.roundName = "Technical Interview"; r2.description = "Technical discussion on core skills and problem solving."; jobRounds.save(r2);
+                JobRound r3 = new JobRound(); r3.job = j; r3.roundOrder = 3; r3.roundName = "HR Interview"; r3.description = "Final round to discuss candidate profile and offer details."; jobRounds.save(r3);
+                rounds = jobRounds.findByJobIdOrderByRoundOrderAsc(id);
+            }
+        }
+        return rounds;
+    }
+
+    @PostMapping("/jobs/{id}/rounds")
+    @Transactional
+    public ResponseEntity<?> saveJobRounds(@PathVariable Long id, @RequestBody List<Map<String, Object>> bodyList) {
+        Job job = jobs.findById(id).orElseThrow();
+        List<JobRound> existingRounds = jobRounds.findByJobIdOrderByRoundOrderAsc(id);
+        for (JobRound r : existingRounds) {
+            List<CandidateRoundResult> results = candidateRoundResults.findByJobRoundId(r.id);
+            candidateRoundResults.deleteAll(results);
+            jobRounds.delete(r);
+        }
+
+        List<JobRound> savedRounds = new ArrayList<>();
+        int order = 1;
+        for (Map<String, Object> map : bodyList) {
+            String name = (String) map.get("roundName");
+            if (name == null || name.isBlank()) continue;
+            JobRound jr = new JobRound();
+            jr.job = job;
+            jr.roundOrder = map.get("roundOrder") != null ? Integer.parseInt(map.get("roundOrder").toString()) : order++;
+            jr.roundName = name.trim();
+            jr.description = (String) map.getOrDefault("description", "");
+            savedRounds.add(jobRounds.save(jr));
+        }
+
+        List<Application> jobApps = apps.findByJobId(id);
+        for (Application app : jobApps) {
+            for (int i = 0; i < savedRounds.size(); i++) {
+                JobRound jr = savedRounds.get(i);
+                CandidateRoundResult crr = new CandidateRoundResult();
+                crr.application = app;
+                crr.jobRound = jr;
+                crr.status = (i == 0) ? "UPCOMING" : "NOT_STARTED";
+                candidateRoundResults.save(crr);
+            }
+        }
+
+        return ResponseEntity.ok(savedRounds);
+    }
+
+    @GetMapping("/applications/{appId}/progress")
+    @Transactional
+    public ResponseEntity<?> getStudentApplicationProgress(@PathVariable Long appId) {
+        Application app = apps.findById(appId).orElseThrow();
+        List<JobRound> rounds = jobRounds.findByJobIdOrderByRoundOrderAsc(app.job.id);
+        if (rounds.isEmpty()) {
+            rounds = getJobRounds(app.job.id);
+        }
+
+        List<Map<String, Object>> timeline = new ArrayList<>();
+        String currentOverallStatus = "Applied";
+        String nextRoundName = null;
+
+        for (int i = 0; i < rounds.size(); i++) {
+            JobRound r = rounds.get(i);
+            final boolean isFirstRound = (i == 0);
+            Optional<CandidateRoundResult> crrOpt = candidateRoundResults.findByApplicationIdAndJobRoundId(appId, r.id);
+            CandidateRoundResult crr = crrOpt.orElseGet(() -> {
+                CandidateRoundResult newCrr = new CandidateRoundResult();
+                newCrr.application = app;
+                newCrr.jobRound = r;
+                newCrr.status = isFirstRound ? "UPCOMING" : "NOT_STARTED";
+                return candidateRoundResults.save(newCrr);
+            });
+
+            if ("SHORTLISTED".equalsIgnoreCase(crr.status)) {
+                if (i == rounds.size() - 1) {
+                    currentOverallStatus = "Selected - Final Offer Granted";
+                } else {
+                    currentOverallStatus = "Shortlisted for " + rounds.get(i + 1).roundName;
+                    nextRoundName = rounds.get(i + 1).roundName;
+                }
+            } else if ("NOT_SHORTLISTED".equalsIgnoreCase(crr.status)) {
+                currentOverallStatus = "Eliminated in " + r.roundName;
+            } else if ("UPCOMING".equalsIgnoreCase(crr.status) || "IN_PROGRESS".equalsIgnoreCase(crr.status)) {
+                if (nextRoundName == null) nextRoundName = r.roundName;
+            }
+
+            timeline.add(Map.of(
+                    "roundId", r.id,
+                    "roundOrder", r.roundOrder != null ? r.roundOrder : (i + 1),
+                    "roundName", r.roundName,
+                    "description", r.description != null ? r.description : "",
+                    "status", crr.status,
+                    "remarks", crr.remarks != null ? crr.remarks : "",
+                    "updatedAt", crr.updatedAt != null ? crr.updatedAt.toString() : ""
+            ));
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "applicationId", app.id,
+                "jobTitle", app.job.title,
+                "company", app.job.company,
+                "overallStatus", currentOverallStatus,
+                "nextRound", nextRoundName != null ? nextRoundName : "None",
+                "rounds", timeline
+        ));
+    }
+
+    @GetMapping("/jobs/{jobId}/rounds/results")
+    @Transactional
+    public ResponseEntity<?> getJobRoundsResults(@PathVariable Long jobId) {
+        List<JobRound> rounds = jobRounds.findByJobIdOrderByRoundOrderAsc(jobId);
+        if (rounds.isEmpty()) {
+            rounds = getJobRounds(jobId);
+        }
+        List<Application> jobApps = apps.findByJobId(jobId);
+
+        List<Map<String, Object>> candidateResults = new ArrayList<>();
+        for (Application app : jobApps) {
+            List<Map<String, Object>> roundStatuses = new ArrayList<>();
+            for (JobRound r : rounds) {
+                CandidateRoundResult crr = candidateRoundResults.findByApplicationIdAndJobRoundId(app.id, r.id)
+                        .orElseGet(() -> {
+                            CandidateRoundResult newCrr = new CandidateRoundResult();
+                            newCrr.application = app;
+                            newCrr.jobRound = r;
+                            newCrr.status = "NOT_STARTED";
+                            return candidateRoundResults.save(newCrr);
+                        });
+                roundStatuses.add(Map.of(
+                        "roundId", r.id,
+                        "roundName", r.roundName,
+                        "status", crr.status,
+                        "remarks", crr.remarks != null ? crr.remarks : ""
+                ));
+            }
+            candidateResults.add(Map.of(
+                    "applicationId", app.id,
+                    "studentId", app.student != null ? app.student.id : 0,
+                    "studentName", app.studentName != null ? app.studentName : "",
+                    "studentEmail", app.studentEmail != null ? app.studentEmail : "",
+                    "degree", app.studentDegree != null ? app.studentDegree : "B.E.",
+                    "department", app.studentDepartment != null ? app.studentDepartment : "CSE",
+                    "cgpa", app.studentCgpa != null ? app.studentCgpa : 0.0,
+                    "backlogs", app.studentBacklogs != null ? app.studentBacklogs : 0,
+                    "overallStatus", app.status,
+                    "roundResults", roundStatuses
+            ));
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "jobId", jobId,
+                "rounds", rounds,
+                "candidates", candidateResults
+        ));
+    }
+
+    @PostMapping("/jobs/{jobId}/rounds/{roundId}/bulk-status")
+    @Transactional
+    public ResponseEntity<?> bulkUpdateRoundStatus(
+            @PathVariable Long jobId,
+            @PathVariable Long roundId,
+            @RequestBody List<Map<String, Object>> updates
+    ) {
+        JobRound targetRound = jobRounds.findById(roundId).orElseThrow();
+        List<JobRound> allRounds = jobRounds.findByJobIdOrderByRoundOrderAsc(jobId);
+        int currentRoundIdx = -1;
+        for (int i = 0; i < allRounds.size(); i++) {
+            if (allRounds.get(i).id.equals(roundId)) {
+                currentRoundIdx = i;
+                break;
+            }
+        }
+
+        int updatedCount = 0;
+        for (Map<String, Object> update : updates) {
+            Long appId = Long.parseLong(update.get("applicationId").toString());
+            String status = (String) update.get("status");
+            String remarks = (String) update.getOrDefault("remarks", "");
+
+            Application app = apps.findById(appId).orElse(null);
+            if (app == null) continue;
+
+            CandidateRoundResult crr = candidateRoundResults.findByApplicationIdAndJobRoundId(appId, roundId)
+                    .orElseGet(() -> {
+                        CandidateRoundResult newCrr = new CandidateRoundResult();
+                        newCrr.application = app;
+                        newCrr.jobRound = targetRound;
+                        return newCrr;
+                    });
+
+            crr.status = status;
+            crr.remarks = remarks;
+            candidateRoundResults.save(crr);
+            updatedCount++;
+
+            if ("SHORTLISTED".equalsIgnoreCase(status)) {
+                boolean isFinalRound = (currentRoundIdx == allRounds.size() - 1);
+                if (currentRoundIdx >= 0 && currentRoundIdx + 1 < allRounds.size()) {
+                    JobRound nextRound = allRounds.get(currentRoundIdx + 1);
+                    CandidateRoundResult nextCrr = candidateRoundResults.findByApplicationIdAndJobRoundId(appId, nextRound.id)
+                            .orElseGet(() -> {
+                                CandidateRoundResult nCrr = new CandidateRoundResult();
+                                nCrr.application = app;
+                                nCrr.jobRound = nextRound;
+                                return nCrr;
+                            });
+                    nextCrr.status = "UPCOMING";
+                    candidateRoundResults.save(nextCrr);
+                } else if (isFinalRound) {
+                    app.status = "SELECTED";
+                    apps.save(app);
+                }
+
+                String nextInfo = (!isFinalRound && currentRoundIdx >= 0 && currentRoundIdx + 1 < allRounds.size())
+                        ? " Next stage: " + allRounds.get(currentRoundIdx + 1).roundName
+                        : " 🎉 Congratulations! You cleared all selection rounds! The company HR will contact you via email shortly.";
+                Notification n = new Notification();
+                n.user = app.student;
+                n.message = "🎯 Placement Update: You have been SHORTLISTED for " + targetRound.roundName + " (" + app.job.company + " - " + app.job.title + ")." + nextInfo;
+                notifications.save(n);
+            } else if ("NOT_SHORTLISTED".equalsIgnoreCase(status)) {
+                app.status = "REJECTED";
+                apps.save(app);
+
+                Notification n = new Notification();
+                n.user = app.student;
+                n.message = "Placement Update: Status updated for " + targetRound.roundName + " (" + app.job.company + " - " + app.job.title + "). Status: Not Shortlisted.";
+                notifications.save(n);
+            }
+        }
+
+        return ResponseEntity.ok(Map.of("message", "Successfully updated round results for " + updatedCount + " candidate(s)."));
     }
 
     @GetMapping("/applications/student/{id}")
@@ -705,7 +1070,14 @@ public class ApiController {
         List<Application> applicationList = apps.findByJobId(id);
 
         StringBuilder csv = new StringBuilder();
-        // CSV Headers (No password or sensitive credentials included)
+        // Add UTF-8 Byte Order Mark (BOM) for native Excel column alignment
+        csv.append('\uFEFF');
+
+        csv.append("COMPANY NAME:,\"").append(cleanCsv(job.company)).append("\"\n");
+        csv.append("PLACEMENT DRIVE:,\"").append(cleanCsv(job.title)).append("\"\n");
+        csv.append("LOCATION:,\"").append(cleanCsv(job.location)).append("\"\n");
+        csv.append("TOTAL APPLICANTS:,").append(applicationList.size()).append("\n\n");
+
         csv.append("Application ID,Applied Date,Student Name,Student Email,Phone,College,University,Degree,Department,Graduation Year,CGPA,Backlogs,Skills,Eligibility Status,Application Status,Resume URL\n");
 
         DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
@@ -733,10 +1105,10 @@ public class ApiController {
 
         byte[] csvBytes = csv.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
 
-        String safeFileName = (job.company + "_" + job.title + "_Applications.csv").replaceAll("[^a-zA-Z0-9._-]", "_");
+        String safeFileName = (job.company.trim() + "_" + job.title.trim() + "_Applicants.csv").replaceAll("[^a-zA-Z0-9._-]", "_");
 
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.parseMediaType("text/csv"));
+        headers.setContentType(MediaType.parseMediaType("text/csv; charset=UTF-8"));
         headers.setContentDispositionFormData("attachment", safeFileName);
         headers.setCacheControl("must-revalidate, post-check=0, pre-check=0");
 

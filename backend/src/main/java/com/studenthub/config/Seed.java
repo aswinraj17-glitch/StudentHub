@@ -23,6 +23,8 @@ public class Seed {
             Notifications notifications,
             Apps apps,
             Saved saved,
+            JobRounds jobRounds,
+            CandidateRoundResults candidateRoundResults,
             PasswordEncoder encoder
     ) {
         return args -> {
@@ -143,7 +145,7 @@ public class Seed {
                 drive1.eligibleGradYear = 2026;
                 drive1.isPlacementDrive = true;
                 drive1.recruiter = officer;
-                jobs.save(drive1);
+                Job savedDrive1 = jobs.save(drive1);
 
                 Job drive2 = new Job();
                 drive2.title = "Frontend Developer Intern";
@@ -168,6 +170,29 @@ public class Seed {
                 drive2.isPlacementDrive = true;
                 drive2.recruiter = officer;
                 jobs.save(drive2);
+
+                if (jobRounds.count() == 0) {
+                    JobRound r1 = new JobRound();
+                    r1.job = savedDrive1;
+                    r1.roundOrder = 1;
+                    r1.roundName = "Aptitude Test";
+                    r1.description = "Online aptitude assessment covering quantitative aptitude, logical reasoning, and verbal skills.";
+                    jobRounds.save(r1);
+
+                    JobRound r2 = new JobRound();
+                    r2.job = savedDrive1;
+                    r2.roundOrder = 2;
+                    r2.roundName = "Technical Interview";
+                    r2.description = "In-depth technical interview focusing on Java, Data Structures, SQL, and OOP concepts.";
+                    jobRounds.save(r2);
+
+                    JobRound r3 = new JobRound();
+                    r3.job = savedDrive1;
+                    r3.roundOrder = 3;
+                    r3.roundName = "HR Interview";
+                    r3.description = "Final round to discuss candidate background, communication skills, and compensation offer.";
+                    jobRounds.save(r3);
+                }
             }
 
             if (announcements.count() == 0) {

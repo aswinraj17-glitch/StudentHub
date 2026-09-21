@@ -1448,11 +1448,22 @@ function StudentDashboard() {
   const [savedJobs, setSavedJobs] = useState([]);
   const [interviews, setInterviews] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
+  const [progressMap, setProgressMap] = useState({});
 
   useEffect(() => {
     if (u?.id) {
       api.get(`/students/${u.id}/profile-wizard`).then((r) => setProfile(r.data));
-      api.get(`/applications/student/${u.id}`).then((r) => setApps(r.data));
+      api.get(`/applications/student/${u.id}`).then(async (r) => {
+        setApps(r.data);
+        const map = {};
+        for (const a of r.data) {
+          try {
+            const pRes = await api.get(`/applications/${a.id}/progress`);
+            map[a.id] = pRes.data;
+          } catch (e) {}
+        }
+        setProgressMap(map);
+      });
       api.get(`/saved-jobs/student/${u.id}`).then((r) => setSavedJobs(r.data));
       api.get(`/interviews/student/${u.id}`).then((r) => setInterviews(r.data));
       api.get('/announcements').then((r) => setAnnouncements(r.data));
@@ -1463,6 +1474,21 @@ function StudentDashboard() {
 
   const completionPct = profile?.completionPercentage || 20;
 
+  const getStatusBadge = (status) => {
+    switch ((status || '').toUpperCase()) {
+      case 'SHORTLISTED':
+        return <span className="badge shortlisted">✅ Shortlisted</span>;
+      case 'UPCOMING':
+        return <span className="badge upcoming">⏳ Upcoming</span>;
+      case 'IN_PROGRESS':
+        return <span className="badge in_progress">🔵 In Progress</span>;
+      case 'NOT_SHORTLISTED':
+        return <span className="badge not_shortlisted">❌ Not Shortlisted</span>;
+      default:
+        return <span className="badge not_started">⚪ Not Started</span>;
+    }
+  };
+
   return (
     <Layout>
       <main className="page">
@@ -1471,7 +1497,7 @@ function StudentDashboard() {
         <div className="dashHead">
           <div>
             <h1 style={{ margin: '5px 0' }}>Good to see you, {u.name?.split(' ')[0]} 👋</h1>
-            <p className="muted">Here is a real-time summary of your campus recruitment activity.</p>
+            <p className="muted">Here is a real-time summary of your campus recruitment activity and round progress.</p>
           </div>
           <Link className="btn" to="/student/placement-drives">
             Explore Placement Drives →
@@ -1520,6 +1546,95 @@ function StudentDashboard() {
             <small className="muted">{completionPct === 100 ? 'Verified Profile' : 'Action Required'}</small>
           </div>
         </div>
+
+        {/* 📌 MY PLACEMENT PROGRESS SECTION */}
+        <section className="panel" style={{ marginBottom: '30px' }}>
+          <h2>📌 My Placement Progress</h2>
+          <p className="muted" style={{ marginTop: '-12px', marginBottom: '20px', fontSize: '13px' }}>
+            Track your stage-by-stage recruitment progress across campus drives.
+          </p>
+
+          {apps.length === 0 ? (
+            <div className="emptyState">
+              <p>You have not applied for any placement drives yet.</p>
+              <Link className="btn sm" to="/student/placement-drives">Browse Placement Drives</Link>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: '25px' }}>
+              {apps.map((app) => {
+                const prog = progressMap[app.id];
+                const allRoundsShortlisted = prog?.rounds && prog.rounds.length > 0 && prog.rounds.every((r) => r.status === 'SHORTLISTED');
+                const isClearedAllRounds = app.status === 'SELECTED' || allRoundsShortlisted || (prog?.overallStatus || '').includes('Selected');
+
+                return (
+                  <div key={app.id} style={{ background: '#ffffff', border: '1px solid var(--line)', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--line)', paddingBottom: '16px', marginBottom: '16px' }}>
+                      <div>
+                        <span style={{ fontSize: '12px', fontWeight: '800', color: 'var(--p)', letterSpacing: '0.5px' }}>
+                          {app.job?.company?.toUpperCase()}
+                        </span>
+                        <h3 style={{ margin: '4px 0 0', font: '800 20px "Plus Jakarta Sans"' }}>{app.job?.title}</h3>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <span className="badge eligible" style={{ background: isClearedAllRounds ? '#ecfdf5' : '#e0e7ff', color: isClearedAllRounds ? '#065f46' : '#3730a3', fontSize: '13px', padding: '6px 14px', border: isClearedAllRounds ? '1px solid #a7f3d0' : 'none' }}>
+                          Status: {isClearedAllRounds ? '🎉 Selected (All Rounds Cleared)' : (prog?.overallStatus || app.status)}
+                        </span>
+                        {prog?.nextRound && prog.nextRound !== 'None' && !isClearedAllRounds && (
+                          <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>
+                            Next Stage: <b>{prog.nextRound}</b>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 🎉 FINAL SELECTION CONGRATULATIONS BANNER */}
+                    {isClearedAllRounds && (
+                      <div style={{ background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)', border: '1.5px solid #10b981', borderRadius: '14px', padding: '18px 20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                        <div style={{ fontSize: '32px' }}>🎉</div>
+                        <div>
+                          <b style={{ color: '#065f46', fontSize: '16px', display: 'block', marginBottom: '4px' }}>
+                            Congratulations! You cleared all selection rounds for {app.job?.company}!
+                          </b>
+                          <span style={{ color: '#047857', fontSize: '13.5px', lineHeight: '1.4', display: 'block' }}>
+                            You have successfully been shortlisted across all placement rounds for <b>{app.job?.title}</b>. The HR of {app.job?.company} and College Placement Cell will contact you via email shortly regarding official offer details and joining instructions.
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Timeline of Selection Process Rounds */}
+                    <div className="roundTimeline">
+                      {prog?.rounds?.map((r, idx) => (
+                        <div key={r.roundId} className={`roundStep ${(r.status || '').toLowerCase()}`}>
+                          <div className="roundDot" />
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <b style={{ fontSize: '15px', color: 'var(--ink)' }}>
+                                Round {r.roundOrder || (idx + 1)} – {r.roundName}
+                              </b>
+                              {r.description && (
+                                <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--muted)' }}>
+                                  {r.description}
+                                </p>
+                              )}
+                              {r.remarks && (
+                                <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--p)', background: '#eef2ff', padding: '4px 10px', borderRadius: '6px', display: 'inline-block' }}>
+                                  Notes: {r.remarks}
+                                </div>
+                              )}
+                            </div>
+                            <div>{getStatusBadge(r.status)}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
         <div className="two">
           <section className="panel">
@@ -1585,11 +1700,14 @@ function StudentPlacementDrives() {
   const [drives, setDrives] = useState([]);
   const [q, setQ] = useState('');
   const [eligibilityMap, setEligibilityMap] = useState({});
+  const [driveRoundsMap, setDriveRoundsMap] = useState({});
   const [selectedIneligible, setSelectedIneligible] = useState(null);
+  const [selectedDriveRounds, setSelectedDriveRounds] = useState(null);
 
   useEffect(() => {
     api.get('/jobs', { params: { keyword: q } }).then(async (r) => {
       setDrives(r.data);
+      const rMap = {};
       if (u?.id) {
         const map = {};
         for (const d of r.data) {
@@ -1597,8 +1715,13 @@ function StudentPlacementDrives() {
             const res = await api.get(`/jobs/${d.id}/eligibility`, { params: { studentId: u.id } });
             map[d.id] = res.data;
           } catch (e) {}
+          try {
+            const roundsRes = await api.get(`/jobs/${d.id}/rounds`);
+            rMap[d.id] = roundsRes.data;
+          } catch (e) {}
         }
         setEligibilityMap(map);
+        setDriveRoundsMap(rMap);
       }
     });
   }, [q, u?.id]);
@@ -1618,7 +1741,7 @@ function StudentPlacementDrives() {
       <main className="page">
         <small>CAMPUS RECRUITMENT DRIVES</small>
         <h1>Placement Drives & Opportunities</h1>
-        <p className="muted">Browse placement drives with automatic eligibility verification and deadline checks.</p>
+        <p className="muted">Browse placement drives with automatic eligibility verification and selection process rounds.</p>
 
         <div className="search" style={{ margin: '25px 0' }}>
           <FiSearch style={{ margin: '0 10px', color: 'var(--muted)' }} />
@@ -1630,6 +1753,7 @@ function StudentPlacementDrives() {
             const elig = eligibilityMap[d.id];
             const isEligible = elig?.eligible !== false;
             const isClosed = d.deadline && new Date(d.deadline) < new Date();
+            const rounds = driveRoundsMap[d.id] || [];
 
             return (
               <div key={d.id} className="card">
@@ -1654,6 +1778,21 @@ function StudentPlacementDrives() {
                   <div>• Degree: <b>{d.eligibleDegree}</b> | Dept: <b>{d.eligibleDepartment}</b></div>
                   <div>• Grad Year: <b>{d.eligibleGradYear}</b></div>
                 </div>
+
+                {/* SELECTION PROCESS ROUNDS PREVIEW */}
+                {rounds.length > 0 && (
+                  <div style={{ background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: '10px', padding: '10px 12px', margin: '10px 0', fontSize: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <b style={{ color: '#3730a3' }}>🎯 Selection Process ({rounds.length} Rounds):</b>
+                      <button className="link" style={{ fontSize: '11px', color: 'var(--p)' }} onClick={() => setSelectedDriveRounds({ job: d, rounds })}>
+                        View Details →
+                      </button>
+                    </div>
+                    <div style={{ color: '#4338ca', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {rounds.map((r, i) => `R${i + 1}: ${r.roundName}`).join(' ➔ ')}
+                    </div>
+                  </div>
+                )}
 
                 <div className="meta" style={{ margin: '10px 0', fontSize: '12px' }}>
                   <span><FiMapPin /> {d.location}</span>
@@ -1686,6 +1825,37 @@ function StudentPlacementDrives() {
             );
           })}
         </div>
+
+        {/* Selection Process Modal */}
+        {selectedDriveRounds && (
+          <div className="modalOverlay">
+            <div className="modalCard" style={{ width: 'min(600px, 100%)' }}>
+              <div className="modalHeader">
+                <h2>🎯 Selection Process – {selectedDriveRounds.job?.company}</h2>
+                <button className="closeBtn" onClick={() => setSelectedDriveRounds(null)}>×</button>
+              </div>
+
+              <p className="muted" style={{ marginTop: 0 }}>
+                Complete recruitment rounds for <b>{selectedDriveRounds.job?.title}</b>:
+              </p>
+
+              <div style={{ display: 'grid', gap: '12px', margin: '20px 0' }}>
+                {selectedDriveRounds.rounds.map((r, idx) => (
+                  <div key={r.id || idx} style={{ background: '#f8fafc', border: '1px solid var(--line)', padding: '14px', borderRadius: '12px' }}>
+                    <b style={{ color: 'var(--p)', fontSize: '15px' }}>
+                      Round {r.roundOrder || (idx + 1)} – {r.roundName}
+                    </b>
+                    <p style={{ margin: '6px 0 0', fontSize: '13px', color: 'var(--muted)' }}>
+                      {r.description || 'Instructions will be shared prior to the round.'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <button className="btn wide" onClick={() => setSelectedDriveRounds(null)}>Close</button>
+            </div>
+          </div>
+        )}
 
         {/* Eligibility Modal */}
         {selectedIneligible && (
@@ -1797,21 +1967,32 @@ function StudentApplicationsView() {
           {apps.length === 0 ? (
             <div className="emptyState"><p>No applications submitted yet.</p></div>
           ) : (
-            apps.map((a) => (
-              <div key={a.id} className="app" style={{ padding: '20px 0' }}>
-                <div>
-                  <b style={{ fontSize: '16px' }}>{a.job?.title}</b>
-                  <p style={{ margin: '4px 0', color: 'var(--muted)' }}>{a.job?.company} • {a.job?.location}</p>
-                  <small style={{ color: 'var(--muted)' }}>Applied on: {new Date(a.appliedAt).toLocaleDateString()}</small>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <span className={`badge ${a.status?.toLowerCase()}`}>{a.status}</span>
-                  <div style={{ marginTop: '6px', fontSize: '11px', color: a.eligibilityStatus === 'ELIGIBLE' ? '#10b981' : '#ef4444', fontWeight: '800' }}>
-                    {a.eligibilityStatus === 'ELIGIBLE' ? '✓ Eligible' : '✗ Ineligible'}
+            apps.map((a) => {
+              const isSelected = a.status === 'SELECTED';
+              return (
+                <div key={a.id} className="app" style={{ padding: '20px 0', borderBottom: '1px solid var(--line)' }}>
+                  <div style={{ flex: 1 }}>
+                    <b style={{ fontSize: '16px' }}>{a.job?.title}</b>
+                    <p style={{ margin: '4px 0', color: 'var(--muted)' }}>{a.job?.company} • {a.job?.location}</p>
+                    <small style={{ color: 'var(--muted)' }}>Applied on: {new Date(a.appliedAt).toLocaleDateString()}</small>
+
+                    {isSelected && (
+                      <div style={{ marginTop: '10px', background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '10px 14px', borderRadius: '8px', color: '#065f46', fontSize: '12px' }}>
+                        <b>🎉 Cleared All Selection Rounds!</b> {a.job?.company} HR and Placement Cell will contact you via email shortly regarding official offer letter details.
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ textAlign: 'right', minWidth: '140px' }}>
+                    <span className={`badge ${a.status?.toLowerCase()}`} style={{ background: isSelected ? '#dcfce7' : undefined, color: isSelected ? '#15803d' : undefined }}>
+                      {isSelected ? '🎉 Selected' : a.status}
+                    </span>
+                    <div style={{ marginTop: '6px', fontSize: '11px', color: a.eligibilityStatus === 'ELIGIBLE' ? '#10b981' : '#ef4444', fontWeight: '800' }}>
+                      {a.eligibilityStatus === 'ELIGIBLE' ? '✓ Eligible' : '✗ Ineligible'}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </main>
@@ -1977,11 +2158,55 @@ function OfficerDashboard() {
   const [studentsList, setStudentsList] = useState([]);
   const [showDriveModal, setShowDriveModal] = useState(false);
 
+  // Recruitment Rounds Management State
+  const [driveRounds, setDriveRounds] = useState([]);
+  const [selectedRound, setSelectedRound] = useState(null);
+  const [roundCandidates, setRoundCandidates] = useState([]);
+
+  // Rounds configuration for new drive
+  const [newDriveRounds, setNewDriveRounds] = useState([
+    { roundOrder: 1, roundName: 'Aptitude Test', description: 'Online aptitude assessment covering quantitative aptitude, logical reasoning, and verbal skills.' },
+    { roundOrder: 2, roundName: 'Technical Interview', description: 'Technical interview focusing on core programming skills, data structures, and problem solving.' },
+    { roundOrder: 3, roundName: 'HR Interview', description: 'Final round to discuss candidate profile, background, and offer compensation.' }
+  ]);
+
   const [newDrive, setNewDrive] = useState({
     title: '', company: '', location: '', salaryMin: 5.0, salaryMax: 7.5,
-    eligibleDegree: 'B.E.', eligibleDepartment: 'CSE', minCgpa: 7.0, maxBacklogs: 0,
+    eligibleDegree: 'B.E., B.Tech', eligibleDepartment: 'CSE, IT', minCgpa: 7.0, maxBacklogs: 0,
     skills: 'Java, React, SQL', description: '', deadline: '2026-10-30'
   });
+
+  const toggleDegreeSelection = (deg) => {
+    let current = (newDrive.eligibleDegree || '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (deg === 'All Degrees') {
+      current = ['All Degrees'];
+    } else {
+      current = current.filter((d) => d !== 'All Degrees');
+      if (current.includes(deg)) {
+        current = current.filter((d) => d !== deg);
+      } else {
+        current.push(deg);
+      }
+      if (current.length === 0) current = ['All Degrees'];
+    }
+    setNewDrive({ ...newDrive, eligibleDegree: current.join(', ') });
+  };
+
+  const toggleDeptSelection = (dept) => {
+    let current = (newDrive.eligibleDepartment || '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (dept === 'All Departments') {
+      current = ['All Departments'];
+    } else {
+      current = current.filter((d) => d !== 'All Departments');
+      if (current.includes(dept)) {
+        current = current.filter((d) => d !== dept);
+      } else {
+        current.push(dept);
+      }
+      if (current.length === 0) current = ['All Departments'];
+    }
+    setNewDrive({ ...newDrive, eligibleDepartment: current.join(', ') });
+  };
 
   useEffect(() => {
     api.get('/jobs').then((r) => {
@@ -1989,6 +2214,7 @@ function OfficerDashboard() {
       if (r.data.length > 0) {
         setSelectedDrive(r.data[0]);
         loadDriveApps(r.data[0].id);
+        loadDriveRoundsData(r.data[0].id);
       }
     });
     api.get('/officer/students').then((r) => setStudentsList(r.data)).catch(() => {});
@@ -1998,28 +2224,129 @@ function OfficerDashboard() {
     api.get(`/applications/job/${driveId}`).then((r) => setApplications(r.data));
   };
 
-  const handlePostDrive = async (e) => {
-    e.preventDefault();
-    try {
-      await api.post('/jobs', newDrive, { params: { recruiterId: u.id } });
-      showToast('Placement drive created & published!');
-      setShowDriveModal(false);
-      api.get('/jobs').then((r) => setDrives(r.data));
-    } catch (e) {
-      showToast('Failed to create drive', 'error');
-    }
-  };
+  const loadDriveRoundsData = (driveId) => {
+    api.get(`/jobs/${driveId}/rounds`).then((r) => {
+      setDriveRounds(r.data);
+      if (r.data.length > 0) {
+        setSelectedRound((prev) => {
+          if (prev && r.data.some((round) => round.id === prev.id)) {
+            return prev;
+          }
+          return r.data[0];
+        });
+      } else {
+        setSelectedRound(null);
+      }
+    });
 
-  const handleStatusUpdate = (appId, newStatus) => {
-    api.put(`/applications/${appId}/status`, null, { params: { value: newStatus } }).then(() => {
-      showToast(`Status updated to ${newStatus}`);
-      if (selectedDrive) loadDriveApps(selectedDrive.id);
+    api.get(`/jobs/${driveId}/rounds/results`).then((r) => {
+      setRoundCandidates(r.data.candidates || []);
     });
   };
 
-  const downloadExcel = (driveId) => {
+  const handlePostDrive = async (e) => {
+    e.preventDefault();
+    try {
+      const recruiterIdParam = u?.id ? { recruiterId: u.id } : {};
+      const res = await api.post('/jobs', newDrive, { params: recruiterIdParam });
+      const createdJobId = res.data.id;
+      if (newDriveRounds.length > 0) {
+        await api.post(`/jobs/${createdJobId}/rounds`, newDriveRounds);
+      }
+      showToast('Placement drive published with recruitment rounds!');
+      setShowDriveModal(false);
+      api.get('/jobs').then((r) => {
+        setDrives(r.data);
+        if (r.data.length > 0) {
+          setSelectedDrive(r.data[0]);
+          loadDriveApps(r.data[0].id);
+          loadDriveRoundsData(r.data[0].id);
+        }
+      });
+    } catch (err) {
+      console.error('Error posting drive:', err);
+      const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to create drive';
+      showToast(`Failed to create drive: ${msg}`, 'error');
+    }
+  };
+
+  const handleRoundStatusUpdate = (appId, roundId, newStatus) => {
+    if (!selectedDrive || !roundId) return;
+
+    // Optimistic UI update strictly for this single student candidate
+    setRoundCandidates((prevCandidates) =>
+      prevCandidates.map((cand) => {
+        if (cand.applicationId !== appId) return cand;
+
+        const updatedResults = (cand.roundResults || []).map((rr) => {
+          if (rr.roundId === roundId) {
+            return { ...rr, status: newStatus };
+          }
+          return rr;
+        });
+
+        const exists = updatedResults.some((rr) => rr.roundId === roundId);
+        if (!exists) {
+          updatedResults.push({ roundId, status: newStatus, remarks: '' });
+        }
+
+        return { ...cand, roundResults: updatedResults };
+      })
+    );
+
+    api.post(`/jobs/${selectedDrive.id}/rounds/${roundId}/bulk-status`, [
+      { applicationId: appId, status: newStatus, remarks: `Status updated to ${newStatus}` }
+    ]).then(() => {
+      showToast(`Updated status for Candidate APP${appId}`);
+      loadDriveApps(selectedDrive.id);
+    }).catch((err) => {
+      console.error('Error updating status:', err);
+      showToast('Failed to update candidate round status', 'error');
+      loadDriveRoundsData(selectedDrive.id);
+    });
+  };
+
+  const handleAddRoundField = () => {
+    setNewDriveRounds((prev) => [
+      ...prev,
+      { roundOrder: prev.length + 1, roundName: `Round ${prev.length + 1}`, description: '' }
+    ]);
+  };
+
+  const handleRemoveRoundField = (idx) => {
+    setNewDriveRounds((prev) => prev.filter((_, i) => i !== idx).map((r, i) => ({ ...r, roundOrder: i + 1 })));
+  };
+
+  const handleDeleteDrive = async (driveId, company, title) => {
+    if (window.confirm(`Are you sure you want to delete the placement drive for "${company} - ${title}"?\n\nThis will remove the drive posting, selection rounds, candidate applications, and round results.`)) {
+      try {
+        const res = await api.delete(`/jobs/${driveId}`);
+        showToast(res.data?.message || `Placement drive "${company} - ${title}" deleted successfully.`);
+        const updatedDrivesRes = await api.get('/jobs');
+        setDrives(updatedDrivesRes.data);
+        if (updatedDrivesRes.data.length > 0) {
+          const nextDrive = updatedDrivesRes.data[0];
+          setSelectedDrive(nextDrive);
+          loadDriveApps(nextDrive.id);
+          loadDriveRoundsData(nextDrive.id);
+        } else {
+          setSelectedDrive(null);
+          setApplications([]);
+          setDriveRounds([]);
+          setSelectedRound(null);
+          setRoundCandidates([]);
+        }
+      } catch (err) {
+        console.error('Failed to delete drive:', err);
+        const errMsg = err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to delete placement drive';
+        showToast(`Failed to delete placement drive: ${errMsg}`, 'error');
+      }
+    }
+  };
+
+  const downloadExcel = (driveId, companyName) => {
     window.open(`http://localhost:8080/api/placement-drives/${driveId}/export-excel`, '_blank');
-    showToast('Exporting Applications Excel Spreadsheet...');
+    showToast(`Downloading individual Excel spreadsheet for ${companyName || 'Company'}...`);
   };
 
   if (!u) return <Layout><OfficerLogin /></Layout>;
@@ -2031,7 +2358,7 @@ function OfficerDashboard() {
         <div className="dashHead">
           <div>
             <h1>Placement Officer Portal</h1>
-            <p className="muted">Manage campus recruitment drives, view applicant snapshots, registered student directory, and export Excel reports.</p>
+            <p className="muted">Manage campus recruitment drives, selection rounds, candidate shortlisting, and company Excel reports.</p>
           </div>
           <button className="btn" onClick={() => setShowDriveModal(true)}>
             <FiPlus /> Post Placement Drive
@@ -2041,9 +2368,203 @@ function OfficerDashboard() {
         <div className="dashCards">
           <div className="dashCard"><span>Registered Students</span><b style={{ color: 'var(--p)' }}>{studentsList.length}</b></div>
           <div className="dashCard"><span>Active Drives</span><b>{drives.length}</b></div>
-          <div className="dashCard"><span>Applicants Selected</span><b>{applications.length}</b></div>
-          <div className="dashCard"><span>Shortlisted</span><b>{applications.filter((a) => a.status === 'SHORTLISTED').length}</b></div>
+          <div className="dashCard"><span>Applicants Selected</span><b>{applications.filter((a) => a.status === 'SELECTED').length}</b></div>
+          <div className="dashCard"><span>Shortlisted</span><b>{applications.filter((a) => a.status === 'SHORTLISTED' || a.status === 'SELECTED').length}</b></div>
         </div>
+
+        {/* 🎯 RECRUITMENT ROUNDS & SHORTLIST MANAGEMENT SECTION */}
+        <section className="panel" style={{ marginBottom: '30px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
+            <div>
+              <h2 style={{ margin: 0 }}>🎯 Placement Round & Shortlist Management</h2>
+              <p className="muted" style={{ fontSize: '13px', margin: '4px 0 0' }}>
+                Manage recruitment drives, evaluate candidate performance per round, and export individual company reports.
+              </p>
+            </div>
+
+            {selectedDrive && (
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button className="btn secondary sm" onClick={() => downloadExcel(selectedDrive.id, selectedDrive.company)} title="Download individual Excel file for this company">
+                  <FiDownload /> Download {selectedDrive.company} Excel (.csv)
+                </button>
+
+                <button className="btn danger sm" onClick={() => handleDeleteDrive(selectedDrive.id, selectedDrive.company, selectedDrive.title)} title="Delete this posted job drive">
+                  <FiTrash2 /> Delete Drive
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Placement Drive Selector Tabs */}
+          <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '10px', marginBottom: '20px' }}>
+            {drives.length === 0 ? (
+              <div className="emptyState" style={{ padding: '15px' }}><p>No active placement drives. Click "Post Placement Drive" to create one.</p></div>
+            ) : (
+              drives.map((d) => (
+                <button
+                  key={d.id}
+                  className={`btn sm ${selectedDrive?.id === d.id ? '' : 'secondary'}`}
+                  style={{ borderRadius: '20px', padding: '8px 16px', fontWeight: '700' }}
+                  onClick={() => {
+                    setSelectedDrive(d);
+                    loadDriveApps(d.id);
+                    loadDriveRoundsData(d.id);
+                  }}
+                >
+                  🏢 {d.company} – {d.title}
+                </button>
+              ))
+            )}
+          </div>
+
+          {/* Selection Rounds Tabs */}
+          {selectedDrive && driveRounds.length > 0 && (
+            <div style={{ background: '#f8fafc', border: '1px solid var(--line)', borderRadius: '14px', padding: '18px', marginBottom: '25px' }}>
+              <div style={{ fontSize: '12px', fontWeight: '800', color: 'var(--p)', letterSpacing: '0.5px', marginBottom: '12px' }}>
+                RECRUITMENT SELECTION PROCESS ({driveRounds.length} ROUNDS):
+              </div>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                {driveRounds.map((r, idx) => (
+                  <button
+                    key={r.id}
+                    className={`btn sm ${selectedRound?.id === r.id ? '' : 'secondary'}`}
+                    style={{ borderRadius: '10px' }}
+                    onClick={() => setSelectedRound(r)}
+                  >
+                    Round {r.roundOrder || (idx + 1)}: {r.roundName}
+                  </button>
+                ))}
+              </div>
+
+              {selectedRound && (
+                <div style={{ marginTop: '14px', fontSize: '13px', background: '#ffffff', padding: '14px 18px', borderRadius: '10px', border: '1px solid var(--line)' }}>
+                  <b>Instructions / Criteria for {selectedRound.roundName}:</b>
+                  <p style={{ margin: '4px 0 0', color: 'var(--muted)' }}>
+                    {selectedRound.description || 'No specific instructions configured for this round.'}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Candidates Round Management Table */}
+          {!selectedDrive ? (
+            <div className="emptyState"><p>No placement drives available. Click "Post Placement Drive" to create a new drive.</p></div>
+          ) : driveRounds.length === 0 ? (
+            <div className="emptyState">
+              <p>No selection rounds configured for <b>{selectedDrive.company} - {selectedDrive.title}</b>.</p>
+              <button className="btn sm" onClick={() => loadDriveRoundsData(selectedDrive.id)}>🎯 Initialize Recruitment Rounds</button>
+            </div>
+          ) : !selectedRound ? (
+            <div className="emptyState"><p>Select a round tab above to manage candidate shortlists for that round.</p></div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid var(--line)', color: 'var(--muted)' }}>
+                    <th style={{ padding: '12px' }}>App ID</th>
+                    <th style={{ padding: '12px' }}>Student Candidate</th>
+                    <th style={{ padding: '12px' }}>Degree & Dept</th>
+                    <th style={{ padding: '12px' }}>CGPA</th>
+                    <th style={{ padding: '12px' }}>Backlogs</th>
+                    <th style={{ padding: '12px' }}>Round Status ({selectedRound.roundName})</th>
+                    <th style={{ padding: '12px' }}>Shortlist Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {roundCandidates.length === 0 ? (
+                    <tr><td colSpan={7} style={{ padding: '25px', textAlign: 'center', color: 'var(--muted)' }}>No candidate applications found for this placement drive yet.</td></tr>
+                  ) : (
+                    roundCandidates.map((c) => {
+                      const roundRes = c.roundResults?.find((rr) => rr.roundId === selectedRound.id);
+                      const currentStatus = roundRes?.status || 'NOT_STARTED';
+
+                      return (
+                        <tr key={c.applicationId} style={{ borderBottom: '1px solid var(--line)' }}>
+                          <td style={{ padding: '12px' }}>APP{c.applicationId}</td>
+                          <td style={{ padding: '12px' }}>
+                            <b>{c.studentName}</b>
+                            <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{c.studentEmail}</div>
+                          </td>
+                          <td style={{ padding: '12px' }}>{c.degree} ({c.department})</td>
+                          <td style={{ padding: '12px' }}><b>{c.cgpa}</b></td>
+                          <td style={{ padding: '12px' }}>{c.backlogs}</td>
+                          <td style={{ padding: '12px' }}>
+                            <span className={`badge ${currentStatus.toLowerCase()}`}>
+                              {currentStatus === 'SHORTLISTED' ? '✅ Shortlisted' :
+                               currentStatus === 'NOT_SHORTLISTED' ? '❌ Eliminated' :
+                               currentStatus === 'UPCOMING' ? '⏳ Upcoming' :
+                               currentStatus === 'IN_PROGRESS' ? '🔵 In Progress' : '⚪ Not Started'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px', display: 'flex', gap: '6px' }}>
+                            <button className="btn sm" onClick={() => handleRoundStatusUpdate(c.applicationId, selectedRound.id, 'SHORTLISTED')}>
+                              ✓ Shortlist
+                            </button>
+                            <button className="btn sm secondary" onClick={() => handleRoundStatusUpdate(c.applicationId, selectedRound.id, 'IN_PROGRESS')}>
+                              🔵 Progress
+                            </button>
+                            <button className="btn sm danger" onClick={() => handleRoundStatusUpdate(c.applicationId, selectedRound.id, 'NOT_SHORTLISTED')}>
+                              ✗ Eliminate
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* 🏢 POSTED PLACEMENT DRIVES DIRECTORY WITH QUICK ACTIONS */}
+        <section className="panel" style={{ marginBottom: '30px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h2>🏢 Posted Campus Placement Drives Overview ({drives.length})</h2>
+            <button className="btn sm" onClick={() => setShowDriveModal(true)}>
+              <FiPlus /> Post New Drive
+            </button>
+          </div>
+
+          {drives.length === 0 ? (
+            <div className="emptyState"><p>No posted placement drives found.</p></div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+              {drives.map((d) => (
+                <div key={d.id} style={{ background: '#ffffff', border: '1px solid var(--line)', borderRadius: '14px', padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                      <span className="avatar">{d.company?.slice(0, 2).toUpperCase()}</span>
+                      <span className="badge eligible" style={{ background: '#e0e7ff', color: '#3730a3', fontSize: '12px' }}>
+                        Drive #{d.id}
+                      </span>
+                    </div>
+
+                    <h3 style={{ margin: '8px 0 4px', font: '800 18px "Plus Jakarta Sans"' }}>{d.title}</h3>
+                    <p style={{ margin: 0, fontWeight: '700', color: 'var(--muted)', fontSize: '14px' }}>{d.company}</p>
+
+                    <div style={{ margin: '12px 0', fontSize: '12px', color: 'var(--muted)', display: 'grid', gap: '4px' }}>
+                      <div>• Salary: <b>₹{d.salaryMin}–{d.salaryMax} LPA</b></div>
+                      <div>• Location: <b>{d.location}</b></div>
+                      <div>• Min CGPA: <b>{d.minCgpa || '0.0'}</b> | Dept: <b>{d.eligibleDepartment}</b></div>
+                      <div>• Deadline: <b>{d.deadline || 'N/A'}</b></div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '15px', paddingTop: '15px', borderTop: '1px solid var(--line)' }}>
+                    <button className="btn secondary sm" style={{ flex: 1 }} onClick={() => downloadExcel(d.id, d.company)} title="Download individual Excel spreadsheet for this company">
+                      <FiDownload /> Excel (.csv)
+                    </button>
+                    <button className="btn danger sm" onClick={() => handleDeleteDrive(d.id, d.company, d.title)} title="Delete this placement drive">
+                      <FiTrash2 /> Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         {/* Sri Shanmugha Registered Students Directory */}
         <section className="panel" style={{ marginBottom: '30px' }}>
@@ -2097,90 +2618,10 @@ function OfficerDashboard() {
           )}
         </section>
 
-        {/* Drives Selector & Excel Export Header */}
-        <section className="panel" style={{ marginBottom: '25px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h2>Applicant Management</h2>
-            {selectedDrive && (
-              <button className="btn secondary" onClick={() => downloadExcel(selectedDrive.id)}>
-                <FiDownload /> Download Applications Excel (.csv)
-              </button>
-            )}
-          </div>
-
-          {/* Drive Tabs */}
-          <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '10px', marginBottom: '20px' }}>
-            {drives.map((d) => (
-              <button
-                key={d.id}
-                className={`btn sm ${selectedDrive?.id === d.id ? '' : 'secondary'}`}
-                onClick={() => {
-                  setSelectedDrive(d);
-                  loadDriveApps(d.id);
-                }}
-              >
-                {d.company} - {d.title}
-              </button>
-            ))}
-          </div>
-
-          {/* Applicants Table */}
-          {applications.length === 0 ? (
-            <div className="emptyState"><p>No candidate applications for this placement drive yet.</p></div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid var(--line)', color: 'var(--muted)' }}>
-                    <th style={{ padding: '12px' }}>App ID</th>
-                    <th style={{ padding: '12px' }}>Student Name</th>
-                    <th style={{ padding: '12px' }}>Degree / Dept</th>
-                    <th style={{ padding: '12px' }}>CGPA</th>
-                    <th style={{ padding: '12px' }}>Backlogs</th>
-                    <th style={{ padding: '12px' }}>Eligibility</th>
-                    <th style={{ padding: '12px' }}>Status</th>
-                    <th style={{ padding: '12px' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {applications.map((a) => (
-                    <tr key={a.id} style={{ borderBottom: '1px solid var(--line)' }}>
-                      <td style={{ padding: '12px' }}>APP{a.id}</td>
-                      <td style={{ padding: '12px' }}>
-                        <b>{a.studentName || a.student?.name}</b>
-                        <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{a.studentEmail || a.student?.email}</div>
-                      </td>
-                      <td style={{ padding: '12px' }}>{a.studentDegree || 'B.E.'} ({a.studentDepartment || 'CSE'})</td>
-                      <td style={{ padding: '12px' }}><b>{a.studentCgpa || 0.0}</b></td>
-                      <td style={{ padding: '12px' }}>{a.studentBacklogs || 0}</td>
-                      <td style={{ padding: '12px' }}>
-                        <span className={`badge ${a.eligibilityStatus === 'ELIGIBLE' ? 'eligible' : 'ineligible'}`}>
-                          {a.eligibilityStatus === 'ELIGIBLE' ? '✓ Eligible' : '✗ Ineligible'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '12px' }}>
-                        <span className={`badge ${a.status?.toLowerCase()}`}>{a.status}</span>
-                      </td>
-                      <td style={{ padding: '12px', display: 'flex', gap: '6px' }}>
-                        <button className="btn sm" onClick={() => handleStatusUpdate(a.id, 'SHORTLISTED')}>
-                          Shortlist
-                        </button>
-                        <button className="btn sm danger" onClick={() => handleStatusUpdate(a.id, 'REJECTED')}>
-                          Reject
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        {/* Post Drive Modal */}
+        {/* Post Drive Modal with Dynamic Recruitment Rounds Configurator */}
         {showDriveModal && (
           <div className="modalOverlay">
-            <div className="modalCard" style={{ width: 'min(650px, 100%)' }}>
+            <div className="modalCard" style={{ width: 'min(750px, 100%)', maxHeight: '90vh', overflowY: 'auto' }}>
               <div className="modalHeader">
                 <h2>Post New Placement Drive</h2>
                 <button className="closeBtn" onClick={() => setShowDriveModal(false)}>×</button>
@@ -2207,19 +2648,55 @@ function OfficerDashboard() {
                   <input type="number" step="0.1" value={newDrive.salaryMin} onChange={(e) => setNewDrive({ ...newDrive, salaryMin: parseFloat(e.target.value) })} />
                 </label>
 
-                <label className="formGroup">
-                  Eligible Degree *
-                  <select value={newDrive.eligibleDegree} onChange={(e) => setNewDrive({ ...newDrive, eligibleDegree: e.target.value })}>
-                    {DEGREES.map((d) => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </label>
+                <div className="formGroup full" style={{ background: '#f8fafc', border: '1px solid var(--line)', padding: '14px', borderRadius: '12px' }}>
+                  <label style={{ fontWeight: '700', marginBottom: '8px', display: 'block', fontSize: '13px' }}>
+                    🎓 Eligible Degrees (Multi-Select):
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {['All Degrees', 'B.E.', 'B.Tech', 'M.E.', 'M.Tech', 'B.Sc', 'M.Sc', 'BCA', 'MCA', 'MBA'].map((d) => {
+                      const selected = (newDrive.eligibleDegree || '').split(',').map((s) => s.trim()).includes(d);
+                      return (
+                        <button
+                          key={d}
+                          type="button"
+                          className={`btn sm ${selected ? '' : 'secondary'}`}
+                          style={{ padding: '5px 12px', borderRadius: '20px', fontSize: '12px' }}
+                          onClick={() => toggleDegreeSelection(d)}
+                        >
+                          {selected ? '✓ ' : ''}{d}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <small style={{ color: 'var(--p)', fontWeight: '600', marginTop: '6px', display: 'block', fontSize: '12px' }}>
+                    Selected Degrees: <b>{newDrive.eligibleDegree || 'None'}</b>
+                  </small>
+                </div>
 
-                <label className="formGroup">
-                  Eligible Department *
-                  <select value={newDrive.eligibleDepartment} onChange={(e) => setNewDrive({ ...newDrive, eligibleDepartment: e.target.value })}>
-                    {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </label>
+                <div className="formGroup full" style={{ background: '#f8fafc', border: '1px solid var(--line)', padding: '14px', borderRadius: '12px' }}>
+                  <label style={{ fontWeight: '700', marginBottom: '8px', display: 'block', fontSize: '13px' }}>
+                    🏢 Eligible Departments (Multi-Select):
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {['All Departments', 'CSE', 'IT', 'ECE', 'EEE', 'Mechanical', 'Civil', 'AI & DS', 'AI & ML', 'Cyber Security'].map((dept) => {
+                      const selected = (newDrive.eligibleDepartment || '').split(',').map((s) => s.trim()).includes(dept);
+                      return (
+                        <button
+                          key={dept}
+                          type="button"
+                          className={`btn sm ${selected ? '' : 'secondary'}`}
+                          style={{ padding: '5px 12px', borderRadius: '20px', fontSize: '12px' }}
+                          onClick={() => toggleDeptSelection(dept)}
+                        >
+                          {selected ? '✓ ' : ''}{dept}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <small style={{ color: 'var(--p)', fontWeight: '600', marginTop: '6px', display: 'block', fontSize: '12px' }}>
+                    Selected Departments: <b>{newDrive.eligibleDepartment || 'None'}</b>
+                  </small>
+                </div>
 
                 <label className="formGroup">
                   Minimum CGPA *
@@ -2245,6 +2722,52 @@ function OfficerDashboard() {
                   Drive Description *
                   <textarea rows={3} value={newDrive.description} onChange={(e) => setNewDrive({ ...newDrive, description: e.target.value })} placeholder="Enter detailed job roles & responsibilities..." />
                 </label>
+
+                {/* DYNAMIC RECRUITMENT SELECTION ROUNDS BUILDER */}
+                <div style={{ gridColumn: '1 / -1', background: '#f8fafc', border: '1px solid var(--line)', borderRadius: '12px', padding: '16px', marginTop: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                    <b style={{ color: 'var(--p)', fontSize: '15px' }}>🎯 Define Recruitment / Selection Rounds ({newDriveRounds.length})</b>
+                    <button type="button" className="btn sm secondary" onClick={handleAddRoundField}>
+                      + Add Selection Round
+                    </button>
+                  </div>
+
+                  {newDriveRounds.map((rd, idx) => (
+                    <div key={idx} style={{ background: '#ffffff', border: '1px solid var(--line)', padding: '12px', borderRadius: '10px', marginBottom: '10px' }}>
+                      <div style={{ display: 'flex', gap: '10px', marginBottom: '8px', alignItems: 'center' }}>
+                        <span style={{ fontWeight: '800', background: 'var(--p)', color: '#fff', borderRadius: '50%', width: '24px', height: '24px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }}>
+                          {idx + 1}
+                        </span>
+                        <input
+                          style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--line)', fontWeight: '700' }}
+                          value={rd.roundName}
+                          onChange={(e) => {
+                            const updated = [...newDriveRounds];
+                            updated[idx].roundName = e.target.value;
+                            setNewDriveRounds(updated);
+                          }}
+                          placeholder={`Round ${idx + 1} Name (e.g. Aptitude Test, Technical Interview)`}
+                        />
+                        {newDriveRounds.length > 1 && (
+                          <button type="button" className="btn sm danger" onClick={() => handleRemoveRoundField(idx)}>
+                            Remove
+                          </button>
+                        )}
+                      </div>
+
+                      <input
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--line)', fontSize: '13px' }}
+                        value={rd.description}
+                        onChange={(e) => {
+                          const updated = [...newDriveRounds];
+                          updated[idx].description = e.target.value;
+                          setNewDriveRounds(updated);
+                        }}
+                        placeholder="Round description & instructions..."
+                      />
+                    </div>
+                  ))}
+                </div>
 
                 <button className="btn wide" style={{ gridColumn: '1 / -1', marginTop: '15px' }}>Publish Placement Drive</button>
               </form>

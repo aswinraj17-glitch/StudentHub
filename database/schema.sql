@@ -10,6 +10,8 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS announcements;
 DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS candidate_round_results;
+DROP TABLE IF EXISTS job_rounds;
 DROP TABLE IF EXISTS interviews;
 DROP TABLE IF EXISTS saved_jobs;
 DROP TABLE IF EXISTS applications;
@@ -193,6 +195,33 @@ CREATE TABLE announcements (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ------------------------------------------------------------
+-- Table: job_rounds (Recruitment / Selection process rounds per job)
+-- ------------------------------------------------------------
+CREATE TABLE job_rounds (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    job_id BIGINT NOT NULL,
+    round_order INT NOT NULL,
+    round_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ------------------------------------------------------------
+-- Table: candidate_round_results (Candidate status per recruitment round)
+-- ------------------------------------------------------------
+CREATE TABLE candidate_round_results (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    application_id BIGINT NOT NULL,
+    job_round_id BIGINT NOT NULL,
+    status VARCHAR(50) DEFAULT 'NOT_STARTED', -- NOT_STARTED, UPCOMING, IN_PROGRESS, SHORTLISTED, NOT_SHORTLISTED
+    remarks TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE,
+    FOREIGN KEY (job_round_id) REFERENCES job_rounds(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ============================================================
 -- SEED DATA FOR TESTING
 -- ============================================================
@@ -214,8 +243,18 @@ INSERT INTO jobs (id, title, company, location, job_type, experience, qualificat
 (1, 'Java Full Stack Developer', 'TechNova Solutions', 'Chennai', 'Full Time', 'Fresher', 'B.E. / B.Tech', 'Java, Spring Boot, SQL, React', 5.0, 7.5, 8, CURRENT_DATE, DATE_ADD(CURRENT_DATE, INTERVAL 25 DAY), DATE_ADD(CURRENT_DATE, INTERVAL 30 DAY), 'Recruiting fresh graduates for our core product engineering team.', 'B.E.', 'CSE', 7.0, 0, 2026, TRUE, TRUE, TRUE, 2),
 (2, 'Frontend Developer Intern', 'CodeCraft Technologies', 'Bangalore', 'Internship', 'Fresher', 'B.E. / B.Tech / B.Sc', 'React, JavaScript, HTML, CSS', 20000.0, 25000.0, 5, CURRENT_DATE, DATE_ADD(CURRENT_DATE, INTERVAL 15 DAY), DATE_ADD(CURRENT_DATE, INTERVAL 20 DAY), 'Work alongside senior engineers building scalable frontend apps.', 'B.E.', 'CSE', 6.5, 0, 2026, TRUE, TRUE, TRUE, 2);
 
+INSERT INTO job_rounds (id, job_id, round_order, round_name, description) VALUES
+(1, 1, 1, 'Aptitude Test', 'Online aptitude assessment covering quantitative aptitude, logical reasoning, and verbal skills.'),
+(2, 1, 2, 'Technical Interview', 'In-depth technical interview focusing on Java, Data Structures, SQL, and OOP concepts.'),
+(3, 1, 3, 'HR Interview', 'Final round to discuss candidate background, communication skills, and compensation offer.');
+
 INSERT INTO applications (id, student_id, job_id, status, applied_at, student_name, student_email, student_phone, student_college, student_degree, student_department, student_grad_year, student_cgpa, student_backlogs, student_skills, student_resume_url, eligibility_status, eligibility_reasons) VALUES
 (1, 1, 1, 'SHORTLISTED', NOW(), 'Aswin Raj', 'student@studenthub.com', '9876543210', 'Anna University', 'B.E.', 'CSE', 2026, 8.5, 0, 'Java, Spring Boot, React, SQL', 'https://example.com/resumes/aswin_resume.pdf', 'ELIGIBLE', '');
+
+INSERT INTO candidate_round_results (id, application_id, job_round_id, status, remarks) VALUES
+(1, 1, 1, 'SHORTLISTED', 'Cleared online test with 92% score.'),
+(2, 1, 2, 'UPCOMING', 'Scheduled for technical interview.'),
+(3, 1, 3, 'NOT_STARTED', '');
 
 INSERT INTO saved_jobs (id, student_id, job_id) VALUES
 (1, 1, 2);

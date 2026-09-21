@@ -274,4 +274,50 @@ public class Entities {
         public String authorName = "Placement Cell";
         public LocalDateTime createdAt = LocalDateTime.now();
     }
+
+    @Entity(name = "JobRound")
+    @Table(name = "job_rounds")
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    public static class JobRound {
+        @Id
+        @GeneratedValue(strategy = GenerationType.IDENTITY)
+        public Long id;
+
+        @ManyToOne
+        public Job job;
+
+        public Integer roundOrder;
+        public String roundName;
+
+        @Column(columnDefinition = "TEXT")
+        public String description;
+
+        public LocalDateTime createdAt = LocalDateTime.now();
+    }
+
+    @Entity(name = "CandidateRoundResult")
+    @Table(name = "candidate_round_results")
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    public static class CandidateRoundResult {
+        @Id
+        @GeneratedValue(strategy = GenerationType.IDENTITY)
+        public Long id;
+
+        @ManyToOne
+        public Application application;
+
+        @ManyToOne
+        public JobRound jobRound;
+
+        public String status = "NOT_STARTED"; // NOT_STARTED, UPCOMING, IN_PROGRESS, SHORTLISTED, NOT_SHORTLISTED
+
+        @Column(columnDefinition = "TEXT")
+        public String remarks;
+
+        public LocalDateTime updatedAt = LocalDateTime.now();
+    }
 }
